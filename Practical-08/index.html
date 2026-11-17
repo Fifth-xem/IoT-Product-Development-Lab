@@ -1,0 +1,289 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web-Based Home Automation</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      color: #f8fafc;
+      background: linear-gradient(135deg, #101827, #203b55);
+    }
+
+    .card {
+      width: 100%;
+      max-width: 430px;
+      padding: 30px 24px;
+      text-align: center;
+      background: #1e293b;
+      border: 1px solid #475569;
+      border-radius: 22px;
+      box-shadow: 0 15px 40px #0005;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 26px;
+    }
+
+    .subtitle {
+      color: #cbd5e1;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .status {
+      margin: 24px 0;
+      padding: 13px;
+      border-radius: 10px;
+      background: #334155;
+      font-size: 14px;
+    }
+
+    .bulb {
+      font-size: 85px;
+      margin: 18px 0;
+      filter: grayscale(1);
+      transition: 0.25s;
+    }
+
+    .bulb.on {
+      filter: none;
+      text-shadow: 0 0 30px #facc15;
+    }
+
+    .state {
+      margin-bottom: 24px;
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    button {
+      width: 100%;
+      padding: 15px;
+      margin: 7px 0;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .connect {
+      color: white;
+      background: #2563eb;
+    }
+
+    .on-btn {
+      color: #052e16;
+      background: #4ade80;
+    }
+
+    .off-btn {
+      color: white;
+      background: #ef4444;
+    }
+
+    .message {
+      min-height: 40px;
+      margin-top: 18px;
+      color: #cbd5e1;
+      font-size: 13px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    .note {
+      margin-top: 16px;
+      color: #94a3b8;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="card">
+    <h1>Home Automation</h1>
+
+    <p class="subtitle">
+      Arduino Uno | HC-05 Bluetooth Control
+    </p>
+
+    <div class="status" id="status">
+      Bluetooth: Not connected
+    </div>
+
+    <div class="bulb" id="bulb">&#128161;</div>
+
+    <div class="state" id="state">LED Status: Unknown</div>
+
+    <button class="connect" id="connectBtn">
+      CONNECT TO HC-05
+    </button>
+
+    <button class="on-btn" id="onBtn" disabled>
+      TURN LED ON
+    </button>
+
+    <button class="off-btn" id="offBtn" disabled>
+      TURN LED OFF
+    </button>
+
+    <div class="message" id="message" role="status">
+      Pair HC-05 with your laptop first, then connect.
+    </div>
+
+    <p class="note">
+      Requires Chrome or Edge on a compatible desktop.
+      The Bluetooth serial COM port must be available
+      to the browser.
+    </p>
+  </main>
+
+  <script>
+    let port = null;
+    let writer = null;
+
+    const status = document.getElementById("status");
+    const message = document.getElementById("message");
+    const connectBtn = document.getElementById("connectBtn");
+    const onBtn = document.getElementById("onBtn");
+    const offBtn = document.getElementById("offBtn");
+    const bulb = document.getElementById("bulb");
+    const state = document.getElementById("state");
+
+    function setConnected(connected) {
+      onBtn.disabled = !connected;
+      offBtn.disabled = !connected;
+
+      status.textContent = connected
+        ? "Bluetooth Serial: Connected"
+        : "Bluetooth: Not connected";
+
+      connectBtn.textContent = connected
+        ? "DISCONNECT"
+        : "CONNECT TO HC-05";
+    }
+
+    async function disconnect() {
+      try {
+        if (writer) {
+          writer.releaseLock();
+          writer = null;
+        }
+
+        if (port) {
+          await port.close();
+          port = null;
+        }
+
+        setConnected(false);
+        message.textContent = "Disconnected.";
+      } catch (error) {
+        message.textContent =
+          "Disconnect error: " + error.message;
+      }
+    }
+
+    connectBtn.addEventListener("click", async () => {
+      if (port) {
+        await disconnect();
+        return;
+      }
+
+      if (!("serial" in navigator)) {
+        message.textContent =
+          "Web Serial is unavailable. Use Chrome or Edge " +
+          "on a compatible desktop and a secure page.";
+        return;
+      }
+
+      try {
+        message.textContent =
+          "Select the HC-05 Bluetooth serial COM port.";
+
+        // The user chooses the port in the browser dialog.
+        port = await navigator.serial.requestPort();
+
+        await port.open({ baudRate: 9600 });
+
+        writer = port.writable.getWriter();
+
+        setConnected(true);
+        message.textContent =
+          "Connected. You can now control the LED.";
+      } catch (error) {
+        port = null;
+        writer = null;
+        setConnected(false);
+
+        message.textContent =
+          "Connection failed or cancelled: " + error.message;
+      }
+    });
+
+    async function sendCommand(command) {
+      if (!writer) {
+        message.textContent = "Connect to HC-05 first.";
+        return;
+      }
+
+      try {
+        const data = new TextEncoder().encode(command);
+        await writer.write(data);
+
+        const isOn = command === "1";
+
+        bulb.classList.toggle("on", isOn);
+        state.textContent = isOn
+          ? "LED Status: ON"
+          : "LED Status: OFF";
+
+        message.textContent = isOn
+          ? "ON command sent."
+          : "OFF command sent.";
+      } catch (error) {
+        message.textContent =
+          "Command failed: " + error.message;
+      }
+    }
+
+    onBtn.addEventListener("click", () => sendCommand("1"));
+    offBtn.addEventListener("click", () => sendCommand("0"));
+
+    if ("serial" in navigator) {
+      navigator.serial.addEventListener(
+        "disconnect",
+        () => {
+          if (port) {
+            writer = null;
+            port = null;
+            setConnected(false);
+            message.textContent =
+              "Serial device disconnected.";
+          }
+        }
+      );
+    }
+  </script>
+</body>
+</html>
